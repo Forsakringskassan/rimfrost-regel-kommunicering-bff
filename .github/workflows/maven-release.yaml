@@ -1,0 +1,10 @@
+name: Bundle Maven Quarkus Release
+
+on: [workflow_dispatch]
+
+jobs:
+  call-workflow:
+    permissions:
+      contents: write
+      packages: write
+    uses: Forsakringskassan/.github/.github/workflows/bundle-maven-quarkus-release.yaml@cbc0db833d2d0584b3b0e3b7ed4fd27867b3f6ed # main
