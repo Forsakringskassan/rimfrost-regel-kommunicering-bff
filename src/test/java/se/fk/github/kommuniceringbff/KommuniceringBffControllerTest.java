@@ -5,24 +5,38 @@ import com.github.tomakehurst.wiremock.http.Fault;
 import io.quarkus.test.common.QuarkusTestResource;
 import io.quarkus.test.junit.QuarkusTest;
 import io.restassured.http.ContentType;
+import io.smallrye.reactive.messaging.memory.InMemoryConnector;
+import jakarta.inject.Inject;
+import org.eclipse.microprofile.reactive.messaging.spi.Connector;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import se.fk.rimfrost.informationsaccess.InformationsaccessEvent;
+
+import java.util.List;
+import java.util.Map;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.*;
 import static io.restassured.RestAssured.given;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @QuarkusTest
 @QuarkusTestResource(WireMockTestResource.class)
 class KommuniceringBffControllerTest
 {
-   private static final String HANDLAGGNING_ID = "3f2b8c1e-6d4a-4b7e-9a0c-1e2d3f4a5b6c";
+   static final String HANDLAGGNING_ID = "3f2b8c1e-6d4a-4b7e-9a0c-1e2d3f4a5b6c";
    private static final String ERSATTNING_ID = "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d";
+   private static final String UPPGIFT_ID = "8a2b3c4d-5e6f-4a1b-8c2d-3e4f5a6b7c8d";
+   private static final String REGEL_ID = "a11f3429-3a6b-4389-ba1c-c2747b0fb45b";
+   private static final String ANVANDARE_TYP_ID = "9b1e4f2a-6c3d-4e8b-a7f5-2d0c1b9e8a36";
 
-   private static final String BACKEND_GET_RESPONSE = """
+   private static final String BACKEND_DATA = """
          {
            "handlaggning_id": "%s",
            "kund": {"fornamn": "Anna", "efternamn": "Andersson", "kon": "KVINNA"},
@@ -39,41 +53,53 @@ class KommuniceringBffControllerTest
            }]
          }""".formatted(HANDLAGGNING_ID, ERSATTNING_ID);
 
+   // The regeltjänst wraps its data together with informationsaccess data (FRKOMM-FR-08.1)
+   static final String BACKEND_GET_RESPONSE = """
+         {
+           "data": %s,
+           "informationsaccess": {
+             "uppgiftId": "%s",
+             "regelId": "%s",
+             "regelVersion": "1",
+             "anvandare": {"typId": "%s", "varde": "H123456"}
+           }
+         }""".formatted(BACKEND_DATA, UPPGIFT_ID, REGEL_ID, ANVANDARE_TYP_ID);
+
    private static final String UPDATE_ERSATTNING = """
          {"ersattningId": "%s", "omfattning_procent": 50, "belopp": 250, "berakningsgrund": 2000,
           "beslutsutfall": "NEJ", "avslagsanledning": "Ej uppfyllt", "from": "2026-02-01", "tom": "2026-02-28"}"""
          .formatted(ERSATTNING_ID);
 
-   private static String taskBody(String handlaggningId)
-   {
-      return "{\"handlaggningId\": \"%s\"}".formatted(handlaggningId);
-   }
-
-   private static String patchBody(String handlaggningId, String ersattningar, String motivering)
+   private static String patchBody(String ersattningar, String motivering)
    {
       return """
-            {"handlaggningId": "%s", "ersattningar": %s, "motivering": %s}"""
-            .formatted(handlaggningId, ersattningar, motivering);
+            {"ersattningar": %s, "motivering": %s}"""
+            .formatted(ersattningar, motivering);
    }
 
-   private static String utfallBody(String handlaggningId, String utfall)
+   private static String utfallBody(String utfall)
    {
       return """
-            {"handlaggningId": "%s", "utfall": %s}"""
-            .formatted(handlaggningId, utfall);
+            {"utfall": %s}"""
+            .formatted(utfall);
    }
 
-   private static String kommentarBody(String handlaggningId, String kommentar)
+   private static String kommentarBody(String kommentar)
    {
       return """
-            {"handlaggningId": "%s", "kommentar": %s}"""
-            .formatted(handlaggningId, kommentar);
+            {"kommentar": %s}"""
+            .formatted(kommentar);
    }
+
+   @Inject
+   @Connector("smallrye-in-memory")
+   InMemoryConnector inMemoryConnector;
 
    @BeforeEach
    void setUp()
    {
       WireMockTestResource.getServer().resetAll();
+      inMemoryConnector.sink("ilogg-event").clear();
    }
 
    @Test
@@ -90,19 +116,14 @@ class KommuniceringBffControllerTest
    }
 
    @Test
-   @DisplayName("POST /api/task hämtar kommuniceringsdata från backend")
+   @DisplayName("GET /api/task/{handlaggningId} hämtar kommuniceringsdata från backend")
    void getTask_returnsBackendData()
    {
-      WireMockTestResource.getServer().stubFor(get(urlEqualTo("/" + HANDLAGGNING_ID))
-            .willReturn(aResponse()
-                  .withHeader("Content-Type", "application/json")
-                  .withBody(BACKEND_GET_RESPONSE)));
+      stubGetData();
 
       given()
-            .contentType(ContentType.JSON)
-            .body(taskBody(HANDLAGGNING_ID))
             .when()
-            .post("/api/task")
+            .get("/api/task/" + HANDLAGGNING_ID)
             .then()
             .statusCode(200)
             .body("handlaggning_id", equalTo(HANDLAGGNING_ID))
@@ -113,54 +134,108 @@ class KommuniceringBffControllerTest
             .body("ersattningar[0].beslutsutfall", equalTo("JA"))
             .body("ersattningar[0].avslagsanledning", nullValue())
             .body("ersattningar[0].from", equalTo("2026-02-01"))
-            .body("ersattningar[0].tom", equalTo("2026-02-28"));
+            .body("ersattningar[0].tom", equalTo("2026-02-28"))
+            .body("data", nullValue())
+            .body("informationsaccess", nullValue());
    }
 
    @Test
-   @DisplayName("POST /api/task utan handlaggningId returnerar 400")
-   void getTask_returns400_whenHandlaggningIdIsBlank()
+   @DisplayName("GET /api/task/{handlaggningId} publicerar ett informationsaccess-event med det som visades")
+   @SuppressWarnings("unchecked")
+   void getTask_publishesInformationsaccessEvent()
    {
+      stubGetData();
+
       given()
-            .contentType(ContentType.JSON)
-            .body(taskBody(""))
             .when()
-            .post("/api/task")
+            .get("/api/task/" + HANDLAGGNING_ID)
             .then()
-            .statusCode(400);
+            .statusCode(200);
+
+      var received = receivedEvents();
+      assertEquals(1, received.size());
+      var event = received.getFirst();
+      assertNotNull(event.getId());
+      assertEquals(ANVANDARE_TYP_ID, event.getAnvandare().getTypId());
+      assertEquals("H123456", event.getAnvandare().getVarde());
+      assertNotNull(event.getTidpunkt());
+      assertEquals("rimfrost-regel-kommunicering-bff", event.getKalla());
+      assertEquals(HANDLAGGNING_ID, event.getHandlaggningId());
+      assertEquals(UPPGIFT_ID, event.getUppgiftId());
+      assertEquals(REGEL_ID, event.getRegelId());
+      assertEquals("1", event.getRegelVersion());
+      var kund = (Map<String, Object>) event.getVisadInformation().get("kund");
+      assertEquals("Anna", kund.get("fornamn"));
+      assertTrue(event.getVisadInformation().containsKey("ersattningar"));
    }
 
    @Test
-   @DisplayName("POST /api/task med handlaggningId som inte är ett UUID returnerar 400")
+   @DisplayName("GET /api/task/{handlaggningId} vidarebefordrar Authorization-headern till backend")
+   void getTask_forwardsAuthorizationHeader()
+   {
+      stubGetData();
+
+      given()
+            .header("Authorization", "Bearer test-token")
+            .when()
+            .get("/api/task/" + HANDLAGGNING_ID)
+            .then()
+            .statusCode(200);
+
+      WireMockTestResource.getServer().verify(getRequestedFor(urlEqualTo("/" + HANDLAGGNING_ID))
+            .withHeader("Authorization", WireMock.equalTo("Bearer test-token")));
+   }
+
+   @Test
+   @DisplayName("GET /api/task/{handlaggningId} två gånger ger två event med olika id")
+   void getTask_publishesEventWithUniqueIdPerCall()
+   {
+      stubGetData();
+
+      for (int i = 0; i < 2; i++)
+      {
+         given()
+               .when()
+               .get("/api/task/" + HANDLAGGNING_ID)
+               .then()
+               .statusCode(200);
+      }
+
+      var received = receivedEvents();
+      assertEquals(2, received.size());
+      assertNotEquals(received.get(0).getId(), received.get(1).getId());
+   }
+
+   @Test
+   @DisplayName("GET /api/task/{handlaggningId} med handlaggningId som inte är ett UUID returnerar 400")
    void getTask_returns400_whenHandlaggningIdIsNotUuid()
    {
       given()
-            .contentType(ContentType.JSON)
-            .body(taskBody("task-123"))
             .when()
-            .post("/api/task")
+            .get("/api/task/task-123")
             .then()
             .statusCode(400);
    }
 
    @Test
-   @DisplayName("POST /api/task returnerar 500 när backend fallerar")
+   @DisplayName("GET /api/task/{handlaggningId} returnerar 500 när backend fallerar")
    void getTask_returns500_whenBackendFails()
    {
       WireMockTestResource.getServer().stubFor(get(urlEqualTo("/" + HANDLAGGNING_ID))
             .willReturn(aResponse().withStatus(500)));
 
       given()
-            .contentType(ContentType.JSON)
-            .body(taskBody(HANDLAGGNING_ID))
             .when()
-            .post("/api/task")
+            .get("/api/task/" + HANDLAGGNING_ID)
             .then()
             .statusCode(500)
             .body("error", equalTo("Upstream error"));
+
+      assertTrue(receivedEvents().isEmpty());
    }
 
    @Test
-   @DisplayName("PATCH /api/task skickar ersättningar och motivering till backend och returnerar 204")
+   @DisplayName("PATCH /api/task/{handlaggningId} skickar ersättningar och motivering till backend och returnerar 204")
    void patchTask_forwardsBodyAndReturns204()
    {
       WireMockTestResource.getServer().stubFor(patch(urlEqualTo("/" + HANDLAGGNING_ID))
@@ -168,9 +243,9 @@ class KommuniceringBffControllerTest
 
       given()
             .contentType(ContentType.JSON)
-            .body(patchBody(HANDLAGGNING_ID, "[" + UPDATE_ERSATTNING + "]", "\"Kunden har kommunicerats\""))
+            .body(patchBody("[" + UPDATE_ERSATTNING + "]", "\"Kunden har kommunicerats\""))
             .when()
-            .patch("/api/task")
+            .patch("/api/task/" + HANDLAGGNING_ID)
             .then()
             .statusCode(204);
 
@@ -188,27 +263,27 @@ class KommuniceringBffControllerTest
    }
 
    @Test
-   @DisplayName("PATCH /api/task utan handlaggningId returnerar 400")
-   void patchTask_returns400_whenHandlaggningIdIsBlank()
+   @DisplayName("PATCH /api/task/{handlaggningId} med handlaggningId som inte är ett UUID returnerar 400")
+   void patchTask_returns400_whenHandlaggningIdIsNotUuid()
    {
       given()
             .contentType(ContentType.JSON)
-            .body(patchBody("", "[" + UPDATE_ERSATTNING + "]", "\"motivering\""))
+            .body(patchBody("[" + UPDATE_ERSATTNING + "]", "\"motivering\""))
             .when()
-            .patch("/api/task")
+            .patch("/api/task/task-123")
             .then()
             .statusCode(400);
    }
 
    @Test
-   @DisplayName("PATCH /api/task med tom ersättningslista returnerar 400")
+   @DisplayName("PATCH /api/task/{handlaggningId} med tom ersättningslista returnerar 400")
    void patchTask_returns400_whenErsattningarIsEmpty()
    {
       given()
             .contentType(ContentType.JSON)
-            .body(patchBody(HANDLAGGNING_ID, "[]", "\"motivering\""))
+            .body(patchBody("[]", "\"motivering\""))
             .when()
-            .patch("/api/task")
+            .patch("/api/task/" + HANDLAGGNING_ID)
             .then()
             .statusCode(400);
 
@@ -216,14 +291,14 @@ class KommuniceringBffControllerTest
    }
 
    @Test
-   @DisplayName("PATCH /api/task utan motivering returnerar 400")
+   @DisplayName("PATCH /api/task/{handlaggningId} utan motivering returnerar 400")
    void patchTask_returns400_whenMotiveringIsMissing()
    {
       given()
             .contentType(ContentType.JSON)
-            .body(patchBody(HANDLAGGNING_ID, "[" + UPDATE_ERSATTNING + "]", "null"))
+            .body(patchBody("[" + UPDATE_ERSATTNING + "]", "null"))
             .when()
-            .patch("/api/task")
+            .patch("/api/task/" + HANDLAGGNING_ID)
             .then()
             .statusCode(400);
 
@@ -231,7 +306,7 @@ class KommuniceringBffControllerTest
    }
 
    @Test
-   @DisplayName("PATCH /api/task där en ersättning saknar obligatoriskt fält returnerar 400")
+   @DisplayName("PATCH /api/task/{handlaggningId} där en ersättning saknar obligatoriskt fält returnerar 400")
    void patchTask_returns400_whenErsattningMissesRequiredField()
    {
       String ersattningUtanBelopp = """
@@ -240,9 +315,9 @@ class KommuniceringBffControllerTest
 
       given()
             .contentType(ContentType.JSON)
-            .body(patchBody(HANDLAGGNING_ID, "[" + ersattningUtanBelopp + "]", "\"motivering\""))
+            .body(patchBody("[" + ersattningUtanBelopp + "]", "\"motivering\""))
             .when()
-            .patch("/api/task")
+            .patch("/api/task/" + HANDLAGGNING_ID)
             .then()
             .statusCode(400);
 
@@ -250,7 +325,7 @@ class KommuniceringBffControllerTest
    }
 
    @Test
-   @DisplayName("PATCH /api/task returnerar 500 när backend fallerar")
+   @DisplayName("PATCH /api/task/{handlaggningId} returnerar 500 när backend fallerar")
    void patchTask_returns500_whenBackendFails()
    {
       WireMockTestResource.getServer().stubFor(patch(urlEqualTo("/" + HANDLAGGNING_ID))
@@ -258,16 +333,16 @@ class KommuniceringBffControllerTest
 
       given()
             .contentType(ContentType.JSON)
-            .body(patchBody(HANDLAGGNING_ID, "[" + UPDATE_ERSATTNING + "]", "\"motivering\""))
+            .body(patchBody("[" + UPDATE_ERSATTNING + "]", "\"motivering\""))
             .when()
-            .patch("/api/task")
+            .patch("/api/task/" + HANDLAGGNING_ID)
             .then()
             .statusCode(500)
             .body("error", equalTo("Upstream error"));
    }
 
    @Test
-   @DisplayName("PATCH /api/task/kommuniceringsutfall skickar utfallet till backend och returnerar 204")
+   @DisplayName("PATCH /api/task/{handlaggningId}/kommuniceringsutfall skickar utfallet till backend och returnerar 204")
    void patchKommuniceringsutfall_forwardsUtfallAndReturns204()
    {
       WireMockTestResource.getServer().stubFor(patch(urlEqualTo("/kommuniceringsutfall/" + HANDLAGGNING_ID))
@@ -275,9 +350,9 @@ class KommuniceringBffControllerTest
 
       given()
             .contentType(ContentType.JSON)
-            .body(utfallBody(HANDLAGGNING_ID, "\"NekatBestridande\""))
+            .body(utfallBody("\"NekatBestridande\""))
             .when()
-            .patch("/api/task/kommuniceringsutfall")
+            .patch("/api/task/" + HANDLAGGNING_ID + "/kommuniceringsutfall")
             .then()
             .statusCode(204);
 
@@ -286,14 +361,14 @@ class KommuniceringBffControllerTest
    }
 
    @Test
-   @DisplayName("PATCH /api/task/kommuniceringsutfall med handlaggningId som inte är ett UUID returnerar 400")
+   @DisplayName("PATCH /api/task/{handlaggningId}/kommuniceringsutfall med handlaggningId som inte är ett UUID returnerar 400")
    void patchKommuniceringsutfall_returns400_whenHandlaggningIdIsNotUuid()
    {
       given()
             .contentType(ContentType.JSON)
-            .body(utfallBody("task-123", "\"KundAccepterat\""))
+            .body(utfallBody("\"KundAccepterat\""))
             .when()
-            .patch("/api/task/kommuniceringsutfall")
+            .patch("/api/task/task-123/kommuniceringsutfall")
             .then()
             .statusCode(400);
 
@@ -301,14 +376,14 @@ class KommuniceringBffControllerTest
    }
 
    @Test
-   @DisplayName("PATCH /api/task/kommuniceringsutfall utan utfall returnerar 400")
+   @DisplayName("PATCH /api/task/{handlaggningId}/kommuniceringsutfall utan utfall returnerar 400")
    void patchKommuniceringsutfall_returns400_whenUtfallIsMissing()
    {
       given()
             .contentType(ContentType.JSON)
-            .body(utfallBody(HANDLAGGNING_ID, "null"))
+            .body(utfallBody("null"))
             .when()
-            .patch("/api/task/kommuniceringsutfall")
+            .patch("/api/task/" + HANDLAGGNING_ID + "/kommuniceringsutfall")
             .then()
             .statusCode(400);
 
@@ -316,14 +391,14 @@ class KommuniceringBffControllerTest
    }
 
    @Test
-   @DisplayName("PATCH /api/task/kommuniceringsutfall med okänt utfall returnerar 400")
+   @DisplayName("PATCH /api/task/{handlaggningId}/kommuniceringsutfall med okänt utfall returnerar 400")
    void patchKommuniceringsutfall_returns400_whenUtfallIsUnknown()
    {
       given()
             .contentType(ContentType.JSON)
-            .body(utfallBody(HANDLAGGNING_ID, "\"Okant\""))
+            .body(utfallBody("\"Okant\""))
             .when()
-            .patch("/api/task/kommuniceringsutfall")
+            .patch("/api/task/" + HANDLAGGNING_ID + "/kommuniceringsutfall")
             .then()
             .statusCode(400);
 
@@ -331,7 +406,7 @@ class KommuniceringBffControllerTest
    }
 
    @Test
-   @DisplayName("PATCH /api/task/kommuniceringsutfall returnerar 500 när backend fallerar")
+   @DisplayName("PATCH /api/task/{handlaggningId}/kommuniceringsutfall returnerar 500 när backend fallerar")
    void patchKommuniceringsutfall_returns500_whenBackendFails()
    {
       WireMockTestResource.getServer().stubFor(patch(urlEqualTo("/kommuniceringsutfall/" + HANDLAGGNING_ID))
@@ -339,16 +414,16 @@ class KommuniceringBffControllerTest
 
       given()
             .contentType(ContentType.JSON)
-            .body(utfallBody(HANDLAGGNING_ID, "\"AccepteratBestridande\""))
+            .body(utfallBody("\"AccepteratBestridande\""))
             .when()
-            .patch("/api/task/kommuniceringsutfall")
+            .patch("/api/task/" + HANDLAGGNING_ID + "/kommuniceringsutfall")
             .then()
             .statusCode(500)
             .body("error", equalTo("Upstream error"));
    }
 
    @Test
-   @DisplayName("PATCH /api/task/uppgiftskommentar skickar kommentaren till backend och returnerar 204")
+   @DisplayName("PATCH /api/task/{handlaggningId}/uppgiftskommentar skickar kommentaren till backend och returnerar 204")
    void patchUppgiftskommentar_forwardsKommentarAndReturns204()
    {
       WireMockTestResource.getServer().stubFor(patch(urlEqualTo("/uppgiftskommentar/" + HANDLAGGNING_ID))
@@ -356,9 +431,9 @@ class KommuniceringBffControllerTest
 
       given()
             .contentType(ContentType.JSON)
-            .body(kommentarBody(HANDLAGGNING_ID, "\"Kunden har ringt\""))
+            .body(kommentarBody("\"Kunden har ringt\""))
             .when()
-            .patch("/api/task/uppgiftskommentar")
+            .patch("/api/task/" + HANDLAGGNING_ID + "/uppgiftskommentar")
             .then()
             .statusCode(204);
 
@@ -367,14 +442,14 @@ class KommuniceringBffControllerTest
    }
 
    @Test
-   @DisplayName("PATCH /api/task/uppgiftskommentar med handlaggningId som inte är ett UUID returnerar 400")
+   @DisplayName("PATCH /api/task/{handlaggningId}/uppgiftskommentar med handlaggningId som inte är ett UUID returnerar 400")
    void patchUppgiftskommentar_returns400_whenHandlaggningIdIsNotUuid()
    {
       given()
             .contentType(ContentType.JSON)
-            .body(kommentarBody("task-123", "\"kommentar\""))
+            .body(kommentarBody("\"kommentar\""))
             .when()
-            .patch("/api/task/uppgiftskommentar")
+            .patch("/api/task/task-123/uppgiftskommentar")
             .then()
             .statusCode(400);
 
@@ -382,14 +457,14 @@ class KommuniceringBffControllerTest
    }
 
    @Test
-   @DisplayName("PATCH /api/task/uppgiftskommentar utan kommentar returnerar 400")
+   @DisplayName("PATCH /api/task/{handlaggningId}/uppgiftskommentar utan kommentar returnerar 400")
    void patchUppgiftskommentar_returns400_whenKommentarIsMissing()
    {
       given()
             .contentType(ContentType.JSON)
-            .body(kommentarBody(HANDLAGGNING_ID, "null"))
+            .body(kommentarBody("null"))
             .when()
-            .patch("/api/task/uppgiftskommentar")
+            .patch("/api/task/" + HANDLAGGNING_ID + "/uppgiftskommentar")
             .then()
             .statusCode(400);
 
@@ -397,7 +472,7 @@ class KommuniceringBffControllerTest
    }
 
    @Test
-   @DisplayName("PATCH /api/task/uppgiftskommentar returnerar 500 när backend fallerar")
+   @DisplayName("PATCH /api/task/{handlaggningId}/uppgiftskommentar returnerar 500 när backend fallerar")
    void patchUppgiftskommentar_returns500_whenBackendFails()
    {
       WireMockTestResource.getServer().stubFor(patch(urlEqualTo("/uppgiftskommentar/" + HANDLAGGNING_ID))
@@ -405,62 +480,56 @@ class KommuniceringBffControllerTest
 
       given()
             .contentType(ContentType.JSON)
-            .body(kommentarBody(HANDLAGGNING_ID, "\"kommentar\""))
+            .body(kommentarBody("\"kommentar\""))
             .when()
-            .patch("/api/task/uppgiftskommentar")
+            .patch("/api/task/" + HANDLAGGNING_ID + "/uppgiftskommentar")
             .then()
             .statusCode(500)
             .body("error", equalTo("Upstream error"));
    }
 
    @Test
-   @DisplayName("POST /api/task/done markerar uppgiften som klar i backend och returnerar 204")
+   @DisplayName("POST /api/task/{handlaggningId}/done markerar uppgiften som klar i backend och returnerar 204")
    void taskDone_returns204_onSuccess()
    {
       WireMockTestResource.getServer().stubFor(post(urlEqualTo("/" + HANDLAGGNING_ID + "/done"))
             .willReturn(aResponse().withStatus(204)));
 
       given()
-            .contentType(ContentType.JSON)
             .header("Authorization", "Bearer test-token")
-            .body(taskBody(HANDLAGGNING_ID))
             .when()
-            .post("/api/task/done")
+            .post("/api/task/" + HANDLAGGNING_ID + "/done")
             .then()
             .statusCode(204);
 
-      WireMockTestResource.getServer().verify(postRequestedFor(urlEqualTo("/" + HANDLAGGNING_ID + "/done")));
+      WireMockTestResource.getServer().verify(postRequestedFor(urlEqualTo("/" + HANDLAGGNING_ID + "/done"))
+            .withHeader("Authorization", WireMock.equalTo("Bearer test-token")));
    }
 
    @Test
-   @DisplayName("POST /api/task/done utan Authorization-header returnerar 401")
-   void taskDone_returns401_whenAuthorizationMissing()
+   @DisplayName("POST /api/task/{handlaggningId}/done med handlaggningId som inte är ett UUID returnerar 400")
+   void taskDone_returns400_whenHandlaggningIdIsNotUuid()
    {
       given()
-            .contentType(ContentType.JSON)
-            .body(taskBody(HANDLAGGNING_ID))
             .when()
-            .post("/api/task/done")
+            .post("/api/task/task-123/done")
             .then()
-            .statusCode(401)
-            .body("error", equalTo("Authorization header required"));
+            .statusCode(400);
 
       WireMockTestResource.getServer().verify(0, postRequestedFor(anyUrl()));
    }
 
    @Test
-   @DisplayName("POST /api/task/done returnerar 500 när backend fallerar")
+   @DisplayName("POST /api/task/{handlaggningId}/done returnerar 500 när backend fallerar")
    void taskDone_returns500_whenBackendFails()
    {
       WireMockTestResource.getServer().stubFor(post(urlEqualTo("/" + HANDLAGGNING_ID + "/done"))
             .willReturn(aResponse().withStatus(500)));
 
       given()
-            .contentType(ContentType.JSON)
             .header("Authorization", "Bearer test-token")
-            .body(taskBody(HANDLAGGNING_ID))
             .when()
-            .post("/api/task/done")
+            .post("/api/task/" + HANDLAGGNING_ID + "/done")
             .then()
             .statusCode(500)
             .body("error", equalTo("Upstream error"));
@@ -481,6 +550,8 @@ class KommuniceringBffControllerTest
             .then()
             .statusCode(200)
             .body("beskrivning", equalTo("Hantera kommunicering från kund"));
+
+      assertTrue(receivedEvents().isEmpty());
    }
 
    @Test
@@ -530,5 +601,25 @@ class KommuniceringBffControllerTest
             .statusCode(503)
             .body("status", equalTo("DOWN"))
             .body("checks.find { it.name == 'backend' }.status", equalTo("DOWN"));
+   }
+
+   static void stubGetData()
+   {
+      stubGetDataWithBody(BACKEND_GET_RESPONSE);
+   }
+
+   private static void stubGetDataWithBody(String body)
+   {
+      WireMockTestResource.getServer().stubFor(get(urlEqualTo("/" + HANDLAGGNING_ID))
+            .willReturn(aResponse()
+                  .withHeader("Content-Type", "application/json")
+                  .withBody(body)));
+   }
+
+   private List<InformationsaccessEvent> receivedEvents()
+   {
+      return inMemoryConnector.sink("ilogg-event").received().stream()
+            .map(message -> (InformationsaccessEvent) message.getPayload())
+            .toList();
    }
 }

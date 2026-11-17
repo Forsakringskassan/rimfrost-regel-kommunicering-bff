@@ -6,7 +6,7 @@ import jakarta.ws.rs.core.MediaType;
 import org.eclipse.microprofile.rest.client.inject.RegisterRestClient;
 import se.fk.rimfrost.framework.regel.kommuniceringsutfall.jaxrsspec.controllers.generatedsource.model.PatchKommuniceringsutfallRequest;
 import se.fk.rimfrost.framework.regel.uppgiftskommentar.jaxrsspec.controllers.generatedsource.model.PatchUppgiftskommentarRequest;
-import se.fk.rimfrost.regel.kommunicering.jaxrsspec.controllers.generatedsource.model.GetDataResponse;
+import se.fk.github.kommuniceringbff.model.BackendGetResponse;
 import se.fk.rimfrost.regel.kommunicering.jaxrsspec.controllers.generatedsource.model.PatchErsattningRequest;
 
 @RegisterRestClient(configKey = "backend")
@@ -16,7 +16,7 @@ public interface KommuniceringClient
 {
    @GET
    @Path("/{handlaggningId}")
-   GetDataResponse getData(@PathParam("handlaggningId") String handlaggningId);
+   BackendGetResponse getData(@PathParam("handlaggningId") String handlaggningId);
 
    @PATCH
    @Path("/{handlaggningId}")
