@@ -26,6 +26,18 @@
     </dependency>
 
     <dependency>
+      <groupId>se.fk.rimfrost.framework.regel.kommuniceringsutfall</groupId>
+      <artifactId>rimfrost-framework-regel-kommuniceringsutfall-openapi-jaxrs-spec</artifactId>
+      <version>0.0.1</version>
+    </dependency>
+
+    <dependency>
+      <groupId>se.fk.rimfrost.framework.regel.uppgiftskommentar</groupId>
+      <artifactId>rimfrost-framework-regel-uppgiftskommentar-openapi-jaxrs-spec</artifactId>
+      <version>0.0.1</version>
+    </dependency>
+
+    <dependency>
       <groupId>io.quarkus</groupId>
       <artifactId>quarkus-rest-jackson</artifactId>
     </dependency>

@@ -10,10 +10,14 @@ import org.eclipse.microprofile.rest.client.inject.RestClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import se.fk.github.kommuniceringbff.integration.KommuniceringClient;
+import se.fk.github.kommuniceringbff.model.KommuniceringsutfallRequest;
 import se.fk.github.kommuniceringbff.model.PatchTaskRequest;
 import se.fk.github.kommuniceringbff.model.TaskRequest;
+import se.fk.github.kommuniceringbff.model.UppgiftskommentarRequest;
 import se.fk.rimfrost.framework.bff.errorhandling.ErrorResponse;
 import se.fk.rimfrost.framework.bff.logging.LogContext;
+import se.fk.rimfrost.framework.regel.kommuniceringsutfall.jaxrsspec.controllers.generatedsource.model.PatchKommuniceringsutfallRequest;
+import se.fk.rimfrost.framework.regel.uppgiftskommentar.jaxrsspec.controllers.generatedsource.model.PatchUppgiftskommentarRequest;
 import se.fk.rimfrost.regel.kommunicering.jaxrsspec.controllers.generatedsource.model.GetDataResponse;
 import se.fk.rimfrost.regel.kommunicering.jaxrsspec.controllers.generatedsource.model.PatchErsattningRequest;
 
@@ -59,6 +63,30 @@ public class KommuniceringBffController
                .ersattningar(body.ersattningar())
                .motivering(body.motivering());
          backendClient.patchErsattningar(body.handlaggningId(), backendBody);
+         return Response.noContent().build();
+      });
+   }
+
+   @PATCH
+   @Path("/task/kommuniceringsutfall")
+   public Response patchKommuniceringsutfall(@Valid KommuniceringsutfallRequest body)
+   {
+      LOGGER.debug("PATCH /api/task/kommuniceringsutfall handlaggningId={}", body.handlaggningId());
+      return withLogContext(body.handlaggningId(), () -> {
+         backendClient.patchKommuniceringsutfall(body.handlaggningId(),
+               new PatchKommuniceringsutfallRequest().utfall(body.utfall()));
+         return Response.noContent().build();
+      });
+   }
+
+   @PATCH
+   @Path("/task/uppgiftskommentar")
+   public Response patchUppgiftskommentar(@Valid UppgiftskommentarRequest body)
+   {
+      LOGGER.debug("PATCH /api/task/uppgiftskommentar handlaggningId={}", body.handlaggningId());
+      return withLogContext(body.handlaggningId(), () -> {
+         backendClient.patchUppgiftskommentar(body.handlaggningId(),
+               new PatchUppgiftskommentarRequest().kommentar(body.kommentar()));
          return Response.noContent().build();
       });
    }

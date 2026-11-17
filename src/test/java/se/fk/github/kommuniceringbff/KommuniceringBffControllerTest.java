@@ -56,6 +56,20 @@ class KommuniceringBffControllerTest
             .formatted(handlaggningId, ersattningar, motivering);
    }
 
+   private static String utfallBody(String handlaggningId, String utfall)
+   {
+      return """
+            {"handlaggningId": "%s", "utfall": %s}"""
+            .formatted(handlaggningId, utfall);
+   }
+
+   private static String kommentarBody(String handlaggningId, String kommentar)
+   {
+      return """
+            {"handlaggningId": "%s", "kommentar": %s}"""
+            .formatted(handlaggningId, kommentar);
+   }
+
    @BeforeEach
    void setUp()
    {
@@ -247,6 +261,153 @@ class KommuniceringBffControllerTest
             .body(patchBody(HANDLAGGNING_ID, "[" + UPDATE_ERSATTNING + "]", "\"motivering\""))
             .when()
             .patch("/api/task")
+            .then()
+            .statusCode(500)
+            .body("error", equalTo("Upstream error"));
+   }
+
+   @Test
+   @DisplayName("PATCH /api/task/kommuniceringsutfall skickar utfallet till backend och returnerar 204")
+   void patchKommuniceringsutfall_forwardsUtfallAndReturns204()
+   {
+      WireMockTestResource.getServer().stubFor(patch(urlEqualTo("/kommuniceringsutfall/" + HANDLAGGNING_ID))
+            .willReturn(aResponse().withStatus(204)));
+
+      given()
+            .contentType(ContentType.JSON)
+            .body(utfallBody(HANDLAGGNING_ID, "\"NekatBestridande\""))
+            .when()
+            .patch("/api/task/kommuniceringsutfall")
+            .then()
+            .statusCode(204);
+
+      WireMockTestResource.getServer().verify(patchRequestedFor(urlEqualTo("/kommuniceringsutfall/" + HANDLAGGNING_ID))
+            .withRequestBody(equalToJson("{\"utfall\": \"NekatBestridande\"}")));
+   }
+
+   @Test
+   @DisplayName("PATCH /api/task/kommuniceringsutfall med handlaggningId som inte är ett UUID returnerar 400")
+   void patchKommuniceringsutfall_returns400_whenHandlaggningIdIsNotUuid()
+   {
+      given()
+            .contentType(ContentType.JSON)
+            .body(utfallBody("task-123", "\"KundAccepterat\""))
+            .when()
+            .patch("/api/task/kommuniceringsutfall")
+            .then()
+            .statusCode(400);
+
+      WireMockTestResource.getServer().verify(0, patchRequestedFor(anyUrl()));
+   }
+
+   @Test
+   @DisplayName("PATCH /api/task/kommuniceringsutfall utan utfall returnerar 400")
+   void patchKommuniceringsutfall_returns400_whenUtfallIsMissing()
+   {
+      given()
+            .contentType(ContentType.JSON)
+            .body(utfallBody(HANDLAGGNING_ID, "null"))
+            .when()
+            .patch("/api/task/kommuniceringsutfall")
+            .then()
+            .statusCode(400);
+
+      WireMockTestResource.getServer().verify(0, patchRequestedFor(anyUrl()));
+   }
+
+   @Test
+   @DisplayName("PATCH /api/task/kommuniceringsutfall med okänt utfall returnerar 400")
+   void patchKommuniceringsutfall_returns400_whenUtfallIsUnknown()
+   {
+      given()
+            .contentType(ContentType.JSON)
+            .body(utfallBody(HANDLAGGNING_ID, "\"Okant\""))
+            .when()
+            .patch("/api/task/kommuniceringsutfall")
+            .then()
+            .statusCode(400);
+
+      WireMockTestResource.getServer().verify(0, patchRequestedFor(anyUrl()));
+   }
+
+   @Test
+   @DisplayName("PATCH /api/task/kommuniceringsutfall returnerar 500 när backend fallerar")
+   void patchKommuniceringsutfall_returns500_whenBackendFails()
+   {
+      WireMockTestResource.getServer().stubFor(patch(urlEqualTo("/kommuniceringsutfall/" + HANDLAGGNING_ID))
+            .willReturn(aResponse().withStatus(500)));
+
+      given()
+            .contentType(ContentType.JSON)
+            .body(utfallBody(HANDLAGGNING_ID, "\"AccepteratBestridande\""))
+            .when()
+            .patch("/api/task/kommuniceringsutfall")
+            .then()
+            .statusCode(500)
+            .body("error", equalTo("Upstream error"));
+   }
+
+   @Test
+   @DisplayName("PATCH /api/task/uppgiftskommentar skickar kommentaren till backend och returnerar 204")
+   void patchUppgiftskommentar_forwardsKommentarAndReturns204()
+   {
+      WireMockTestResource.getServer().stubFor(patch(urlEqualTo("/uppgiftskommentar/" + HANDLAGGNING_ID))
+            .willReturn(aResponse().withStatus(204)));
+
+      given()
+            .contentType(ContentType.JSON)
+            .body(kommentarBody(HANDLAGGNING_ID, "\"Kunden har ringt\""))
+            .when()
+            .patch("/api/task/uppgiftskommentar")
+            .then()
+            .statusCode(204);
+
+      WireMockTestResource.getServer().verify(patchRequestedFor(urlEqualTo("/uppgiftskommentar/" + HANDLAGGNING_ID))
+            .withRequestBody(equalToJson("{\"kommentar\": \"Kunden har ringt\"}")));
+   }
+
+   @Test
+   @DisplayName("PATCH /api/task/uppgiftskommentar med handlaggningId som inte är ett UUID returnerar 400")
+   void patchUppgiftskommentar_returns400_whenHandlaggningIdIsNotUuid()
+   {
+      given()
+            .contentType(ContentType.JSON)
+            .body(kommentarBody("task-123", "\"kommentar\""))
+            .when()
+            .patch("/api/task/uppgiftskommentar")
+            .then()
+            .statusCode(400);
+
+      WireMockTestResource.getServer().verify(0, patchRequestedFor(anyUrl()));
+   }
+
+   @Test
+   @DisplayName("PATCH /api/task/uppgiftskommentar utan kommentar returnerar 400")
+   void patchUppgiftskommentar_returns400_whenKommentarIsMissing()
+   {
+      given()
+            .contentType(ContentType.JSON)
+            .body(kommentarBody(HANDLAGGNING_ID, "null"))
+            .when()
+            .patch("/api/task/uppgiftskommentar")
+            .then()
+            .statusCode(400);
+
+      WireMockTestResource.getServer().verify(0, patchRequestedFor(anyUrl()));
+   }
+
+   @Test
+   @DisplayName("PATCH /api/task/uppgiftskommentar returnerar 500 när backend fallerar")
+   void patchUppgiftskommentar_returns500_whenBackendFails()
+   {
+      WireMockTestResource.getServer().stubFor(patch(urlEqualTo("/uppgiftskommentar/" + HANDLAGGNING_ID))
+            .willReturn(aResponse().withStatus(500)));
+
+      given()
+            .contentType(ContentType.JSON)
+            .body(kommentarBody(HANDLAGGNING_ID, "\"kommentar\""))
+            .when()
+            .patch("/api/task/uppgiftskommentar")
             .then()
             .statusCode(500)
             .body("error", equalTo("Upstream error"));
