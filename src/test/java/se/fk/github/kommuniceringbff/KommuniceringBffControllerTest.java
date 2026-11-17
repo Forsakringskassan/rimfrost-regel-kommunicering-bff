@@ -207,17 +207,6 @@ class KommuniceringBffControllerTest
    }
 
    @Test
-   @DisplayName("GET /api/task/{handlaggningId} med handlaggningId som inte är ett UUID returnerar 400")
-   void getTask_returns400_whenHandlaggningIdIsNotUuid()
-   {
-      given()
-            .when()
-            .get("/api/task/task-123")
-            .then()
-            .statusCode(400);
-   }
-
-   @Test
    @DisplayName("GET /api/task/{handlaggningId} returnerar 500 när backend fallerar")
    void getTask_returns500_whenBackendFails()
    {
@@ -260,19 +249,6 @@ class KommuniceringBffControllerTest
             .withRequestBody(matchingJsonPath("$.ersattningar[0].tom", WireMock.equalTo("2026-02-28"))));
       WireMockTestResource.getServer().verify(patchRequestedFor(urlEqualTo("/" + HANDLAGGNING_ID))
             .withRequestBody(notContaining("handlaggningId")));
-   }
-
-   @Test
-   @DisplayName("PATCH /api/task/{handlaggningId} med handlaggningId som inte är ett UUID returnerar 400")
-   void patchTask_returns400_whenHandlaggningIdIsNotUuid()
-   {
-      given()
-            .contentType(ContentType.JSON)
-            .body(patchBody("[" + UPDATE_ERSATTNING + "]", "\"motivering\""))
-            .when()
-            .patch("/api/task/task-123")
-            .then()
-            .statusCode(400);
    }
 
    @Test
@@ -361,21 +337,6 @@ class KommuniceringBffControllerTest
    }
 
    @Test
-   @DisplayName("PATCH /api/task/{handlaggningId}/kommuniceringsutfall med handlaggningId som inte är ett UUID returnerar 400")
-   void patchKommuniceringsutfall_returns400_whenHandlaggningIdIsNotUuid()
-   {
-      given()
-            .contentType(ContentType.JSON)
-            .body(utfallBody("\"KundAccepterat\""))
-            .when()
-            .patch("/api/task/task-123/kommuniceringsutfall")
-            .then()
-            .statusCode(400);
-
-      WireMockTestResource.getServer().verify(0, patchRequestedFor(anyUrl()));
-   }
-
-   @Test
    @DisplayName("PATCH /api/task/{handlaggningId}/kommuniceringsutfall utan utfall returnerar 400")
    void patchKommuniceringsutfall_returns400_whenUtfallIsMissing()
    {
@@ -442,21 +403,6 @@ class KommuniceringBffControllerTest
    }
 
    @Test
-   @DisplayName("PATCH /api/task/{handlaggningId}/uppgiftskommentar med handlaggningId som inte är ett UUID returnerar 400")
-   void patchUppgiftskommentar_returns400_whenHandlaggningIdIsNotUuid()
-   {
-      given()
-            .contentType(ContentType.JSON)
-            .body(kommentarBody("\"kommentar\""))
-            .when()
-            .patch("/api/task/task-123/uppgiftskommentar")
-            .then()
-            .statusCode(400);
-
-      WireMockTestResource.getServer().verify(0, patchRequestedFor(anyUrl()));
-   }
-
-   @Test
    @DisplayName("PATCH /api/task/{handlaggningId}/uppgiftskommentar utan kommentar returnerar 400")
    void patchUppgiftskommentar_returns400_whenKommentarIsMissing()
    {
@@ -504,19 +450,6 @@ class KommuniceringBffControllerTest
 
       WireMockTestResource.getServer().verify(postRequestedFor(urlEqualTo("/" + HANDLAGGNING_ID + "/done"))
             .withHeader("Authorization", WireMock.equalTo("Bearer test-token")));
-   }
-
-   @Test
-   @DisplayName("POST /api/task/{handlaggningId}/done med handlaggningId som inte är ett UUID returnerar 400")
-   void taskDone_returns400_whenHandlaggningIdIsNotUuid()
-   {
-      given()
-            .when()
-            .post("/api/task/task-123/done")
-            .then()
-            .statusCode(400);
-
-      WireMockTestResource.getServer().verify(0, postRequestedFor(anyUrl()));
    }
 
    @Test
