@@ -2,6 +2,12 @@
 
 Changelog of rimfrost-regel-kommunicering-bff.
 
+## 0.0.2 (2026-11-23)
+
+### Bug Fixes
+
+-  bump rimfrost-framework-regel-uppgiftskommentar-openapi-jaxrs-spec 0.0.1→0.0.2 ([d0418](https://github.com/Forsakringskassan/rimfrost-regel-kommunicering-bff/commit/d041873d6b249a3) Ulf Slunga)  
+
 ## 0.0.1 (2026-11-17)
 
 ### Bug Fixes
